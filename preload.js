@@ -8,6 +8,6 @@ contextBridge.exposeInMainWorld('__PRELOAD__', {
     safeStorageClear: (key) => ipcRenderer.invoke('safe-storage-clear', key),
   },
   api: {
-    request: (method, endpoint, body) => ipcRenderer.invoke('api-request', { method, endpoint, body }),
+    request: (method, endpoint, body, token) => ipcRenderer.invoke('api-request', { method, endpoint, body, token }),
   }
 });

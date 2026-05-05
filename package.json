@@ -61,7 +61,8 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "RIS Manager",
-      "perMachine": true
+      "perMachine": true,
+      "runAfterFinish": false
     }
   }
 }

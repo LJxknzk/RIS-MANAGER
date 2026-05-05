@@ -66,7 +66,7 @@ const APIStorageManager = {
     try {
       // Use IPC-based local API exposed by preload.js
       if (window.__PRELOAD__ && window.__PRELOAD__.api && window.__PRELOAD__.api.request) {
-        const res = await window.__PRELOAD__.api.request(method, endpoint, body);
+        const res = await window.__PRELOAD__.api.request(method, endpoint, body, token);
         // Maintain session handling behaviour
         if (res && res.error && res.error.toLowerCase().includes('unauthorized')) {
           await APIStorageManager.clearToken();
