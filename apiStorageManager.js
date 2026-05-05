@@ -63,35 +63,19 @@ const APIStorageManager = {
   // ============= HTTP HELPERS =============
   async request(method, endpoint, body = null) {
     const token = await APIStorageManager.getToken();
-    const url = `${APIStorageManager.baseURL}${endpoint}`;
-
-    const headers = {
-      'Content-Type': 'application/json',
-    };
-
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
-    const options = { method, headers };
-    if (body) options.body = JSON.stringify(body);
-
     try {
-      const response = await fetch(url, options);
-
-      if (response.status === 401) {
-        // Token expired
-        await APIStorageManager.clearToken();
-        currentUserCache = null;
-        throw new Error('Session expired. Please login again.');
+      // Use IPC-based local API exposed by preload.js
+      if (window.__PRELOAD__ && window.__PRELOAD__.api && window.__PRELOAD__.api.request) {
+        const res = await window.__PRELOAD__.api.request(method, endpoint, body);
+        // Maintain session handling behaviour
+        if (res && res.error && res.error.toLowerCase().includes('unauthorized')) {
+          await APIStorageManager.clearToken();
+          currentUserCache = null;
+          throw new Error('Session expired. Please login again.');
+        }
+        return res;
       }
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || `HTTP ${response.status}`);
-      }
-
-      return await response.json();
+      throw new Error('Local API not available');
     } catch (err) {
       console.error(`API [${method} ${endpoint}]:`, err.message);
       throw err;

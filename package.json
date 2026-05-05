@@ -1,9 +1,13 @@
 {
   "name": "ris-manager",
-  "version": "1.0.0",
-  "description": "",
-  "main": "main.js",
-  "scripts": {
+  "dependencies": {
+    "better-sqlite3": "^8.0.1",
+    "electron-updater": "^4.6.5"
+  },
+  "devDependencies": {
+    "electron": "^41.2.2",
+    "electron-builder": "^25.1.6"
+  },
     "start": "electron .",
     "build": "electron-builder",
     "build:win": "electron-builder --win",
@@ -34,7 +38,15 @@
       "package.json"
     ],
     "win": {
+      "perMachine": true
       "target": [
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "LJxknzk",
+        "repo": "RIS-MANAGER"
+      }
+    ]
         {
           "target": "nsis",
           "arch": [
