@@ -245,12 +245,61 @@ function execToObjects(sql, params = []) {
   return rows;
 }
 
+// Helper to get request with items (request_items)
+function getRequestWithItems(requestId) {
+  const request = execToObjects('SELECT * FROM ris_requests WHERE id = ?', [requestId]);
+  if (!request.length) return null;
+  const req = request[0];
+  const items = execToObjects('SELECT * FROM request_items WHERE request_id = ?', [requestId]);
+  req.items = items;
+  return req;
+}
+
+// Helper to get request with issued items
+function getRequestWithIssuedItems(requestId) {
+  const request = execToObjects('SELECT * FROM ris_requests WHERE id = ?', [requestId]);
+  if (!request.length) return null;
+  const req = request[0];
+  const items = execToObjects('SELECT * FROM issued_items WHERE request_id = ?', [requestId]);
+  req.issuedItems = items;
+  return req;
+}
+
+// Helper to get inventory for item
+function getInventoryForItem(itemId) {
+  const inv = execToObjects('SELECT * FROM inventory WHERE item_id = ?', [itemId]);
+  return inv.length ? inv[0] : null;
+}
+
+// Helper to create/update inventory record
+function ensureInventoryRecord(itemId, itemName, stockNumber) {
+  const existing = getInventoryForItem(itemId);
+  if (existing) return existing;
+  
+  db.run(
+    'INSERT INTO inventory (item_id, item_name, stock_number, quantity) VALUES (?, ?, ?, ?)',
+    [itemId, itemName, stockNumber, 0]
+  );
+  saveDatabase();
+  return getInventoryForItem(itemId);
+}
+
+// Helper to log stock history
+function logStockHistory(itemId, itemName, quantity, action, previousStock, newStock, notes) {
+  db.run(
+    'INSERT INTO stock_history (item_id, item_name, quantity, action, previous_stock, new_stock, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    [itemId, itemName, quantity, action, previousStock, newStock, notes, new Date().toISOString()]
+  );
+  saveDatabase();
+}
+
 // Expose a lightweight API over IPC to replace the previous Express backend
 ipcMain.handle('api-request', (event, { method, endpoint, body, token }) => {
   try {
     if (!dbReady) return { error: 'Database not ready' };
     
     method = (method || 'GET').toUpperCase();
+    
     // Auth: POST /auth/login
     if (method === 'POST' && endpoint === '/auth/login') {
       const { email, password } = body || {};
@@ -291,20 +340,72 @@ ipcMain.handle('api-request', (event, { method, endpoint, body, token }) => {
       return users.length ? users[0] : { error: 'Not found' };
     }
 
-    // Inventory: GET /api/inventory
+    // Inventory: GET /api/inventory, GET /api/inventory/items
     if (method === 'GET' && endpoint === '/api/inventory') {
       const rows = execToObjects('SELECT * FROM inventory');
       return rows;
     }
 
-    // Requests: GET /api/requests, POST /api/requests
-    if (method === 'GET' && endpoint === '/api/requests') {
-      const uid = userIdFromToken(token);
-      if (!uid) return { error: 'Unauthorized' };
-      const rows = execToObjects('SELECT * FROM ris_requests WHERE user_id = ?', [uid]);
+    if (method === 'GET' && endpoint === '/api/inventory/items') {
+      const rows = execToObjects('SELECT * FROM inventory');
       return rows;
     }
 
+    // Inventory: POST /api/inventory/restock
+    if (method === 'POST' && endpoint === '/api/inventory/restock') {
+      const uid = userIdFromToken(token);
+      if (!uid) return { error: 'Unauthorized' };
+      const requesting = execToObjects('SELECT * FROM users WHERE id = ?', [uid]);
+      if (!requesting.length || requesting[0].role !== 'admin') return { error: 'Forbidden' };
+      
+      const { itemId, quantity, notes } = body || {};
+      const inventory = getInventoryForItem(itemId);
+      if (!inventory) return { error: 'Inventory record not found' };
+      
+      const previousStock = inventory.quantity;
+      const newStock = previousStock + quantity;
+      
+      db.run('UPDATE inventory SET quantity = ?, updated_at = ? WHERE item_id = ?', [newStock, new Date().toISOString(), itemId]);
+      logStockHistory(itemId, inventory.item_name, quantity, 'restock', previousStock, newStock, notes);
+      saveDatabase();
+      
+      return getInventoryForItem(itemId);
+    }
+
+    // Inventory: GET /api/inventory/history
+    if (method === 'GET' && endpoint === '/api/inventory/history') {
+      const rows = execToObjects('SELECT * FROM stock_history ORDER BY created_at DESC');
+      return rows;
+    }
+
+    // Requests: GET /api/requests (user's requests), GET /api/requests/admin (all requests for admin)
+    if (method === 'GET' && endpoint === '/api/requests') {
+      const uid = userIdFromToken(token);
+      if (!uid) return { error: 'Unauthorized' };
+      const rows = execToObjects('SELECT * FROM ris_requests WHERE user_id = ? ORDER BY id DESC', [uid]);
+      return rows.map(req => {
+        const items = execToObjects('SELECT * FROM request_items WHERE request_id = ?', [req.id]);
+        const issuedItems = execToObjects('SELECT * FROM issued_items WHERE request_id = ?', [req.id]);
+        return { ...req, items, issuedItems };
+      });
+    }
+
+    if (method === 'GET' && endpoint === '/api/requests/admin') {
+      const uid = userIdFromToken(token);
+      if (!uid) return { error: 'Unauthorized' };
+      const requesting = execToObjects('SELECT * FROM users WHERE id = ?', [uid]);
+      if (!requesting.length || requesting[0].role !== 'admin') return { error: 'Forbidden' };
+      
+      const rows = execToObjects('SELECT * FROM ris_requests ORDER BY id DESC');
+      return rows.map(req => {
+        const items = execToObjects('SELECT * FROM request_items WHERE request_id = ?', [req.id]);
+        const issuedItems = execToObjects('SELECT * FROM issued_items WHERE request_id = ?', [req.id]);
+        const user = execToObjects('SELECT id, name, email, department FROM users WHERE id = ?', [req.user_id]);
+        return { ...req, items, issuedItems, user: user.length ? user[0] : null };
+      });
+    }
+
+    // Requests: POST /api/requests
     if (method === 'POST' && endpoint === '/api/requests') {
       const uid = userIdFromToken(token);
       if (!uid) return { error: 'Unauthorized' };
@@ -316,6 +417,174 @@ ipcMain.handle('api-request', (event, { method, endpoint, body, token }) => {
       saveDatabase();
       const created = execToObjects('SELECT * FROM ris_requests WHERE user_id = ? ORDER BY id DESC LIMIT 1', [uid]);
       return created.length ? created[0] : { error: 'Failed to create' };
+    }
+
+    // Request Items: POST /api/requests/:id/items, GET /api/requests/:id/items
+    const requestItemsMatch = endpoint.match(/^\/api\/requests\/(\d+)\/items$/);
+    if (requestItemsMatch) {
+      const requestId = parseInt(requestItemsMatch[1]);
+      
+      if (method === 'GET') {
+        const items = execToObjects('SELECT * FROM request_items WHERE request_id = ?', [requestId]);
+        return items;
+      }
+      
+      if (method === 'POST') {
+        const uid = userIdFromToken(token);
+        if (!uid) return { error: 'Unauthorized' };
+        const { items } = body || {};
+        
+        // Delete existing items
+        db.run('DELETE FROM request_items WHERE request_id = ?', [requestId]);
+        
+        // Insert new items
+        if (items && Array.isArray(items)) {
+          items.forEach(item => {
+            db.run('INSERT INTO request_items (request_id, item_id, quantity) VALUES (?, ?, ?)', [requestId, item.itemId, item.quantity]);
+          });
+        }
+        saveDatabase();
+        
+        const updated = execToObjects('SELECT * FROM request_items WHERE request_id = ?', [requestId]);
+        return updated;
+      }
+    }
+
+    // Issued Items: POST /api/requests/:id/issued-items, GET /api/requests/:id/issued-items
+    const issuedItemsMatch = endpoint.match(/^\/api\/requests\/(\d+)\/issued-items$/);
+    if (issuedItemsMatch) {
+      const requestId = parseInt(issuedItemsMatch[1]);
+      
+      if (method === 'GET') {
+        const items = execToObjects('SELECT * FROM issued_items WHERE request_id = ?', [requestId]);
+        return items;
+      }
+      
+      if (method === 'POST') {
+        const uid = userIdFromToken(token);
+        if (!uid) return { error: 'Unauthorized' };
+        const requesting = execToObjects('SELECT * FROM users WHERE id = ?', [uid]);
+        if (!requesting.length || requesting[0].role !== 'admin') return { error: 'Forbidden' };
+        
+        const { issuedItems } = body || {};
+        
+        // Delete existing issued items
+        db.run('DELETE FROM issued_items WHERE request_id = ?', [requestId]);
+        
+        // Insert new issued items
+        if (issuedItems && Array.isArray(issuedItems)) {
+          issuedItems.forEach(item => {
+            db.run('INSERT INTO issued_items (request_id, item_id, quantity) VALUES (?, ?, ?)', [requestId, item.itemId, item.quantity]);
+          });
+        }
+        saveDatabase();
+        
+        const updated = execToObjects('SELECT * FROM issued_items WHERE request_id = ?', [requestId]);
+        return updated;
+      }
+    }
+
+    // Approve Request: POST /api/requests/:id/approve
+    const approveMatch = endpoint.match(/^\/api\/requests\/(\d+)\/approve$/);
+    if (method === 'POST' && approveMatch) {
+      const requestId = parseInt(approveMatch[1]);
+      const uid = userIdFromToken(token);
+      if (!uid) return { error: 'Unauthorized' };
+      const requesting = execToObjects('SELECT * FROM users WHERE id = ?', [uid]);
+      if (!requesting.length || requesting[0].role !== 'admin') return { error: 'Forbidden' };
+      
+      // Assign RIS number (use current max + 1)
+      const maxRis = execToObjects('SELECT MAX(ris_number) as max FROM ris_requests WHERE ris_number IS NOT NULL');
+      const nextRis = (maxRis[0]?.max || 0) + 1;
+      
+      db.run('UPDATE ris_requests SET status = ?, ris_number = ?, approver_name = ?, approver_date = ? WHERE id = ?',
+        ['approved', nextRis, requesting[0].name, new Date().toISOString().slice(0,10), requestId]
+      );
+      saveDatabase();
+      
+      return getRequestWithItems(requestId);
+    }
+
+    // Reject Request: POST /api/requests/:id/reject
+    const rejectMatch = endpoint.match(/^\/api\/requests\/(\d+)\/reject$/);
+    if (method === 'POST' && rejectMatch) {
+      const requestId = parseInt(rejectMatch[1]);
+      const uid = userIdFromToken(token);
+      if (!uid) return { error: 'Unauthorized' };
+      const requesting = execToObjects('SELECT * FROM users WHERE id = ?', [uid]);
+      if (!requesting.length || requesting[0].role !== 'admin') return { error: 'Forbidden' };
+      
+      db.run('UPDATE ris_requests SET status = ? WHERE id = ?', ['rejected', requestId]);
+      saveDatabase();
+      
+      return getRequestWithItems(requestId);
+    }
+
+    // Mark Released: POST /api/requests/:id/mark-released
+    // CRITICAL: Uses ISSUED QUANTITIES (admin-provided), not requested quantities
+    const markReleasedMatch = endpoint.match(/^\/api\/requests\/(\d+)\/mark-released$/);
+    if (method === 'POST' && markReleasedMatch) {
+      const requestId = parseInt(markReleasedMatch[1]);
+      const uid = userIdFromToken(token);
+      if (!uid) return { error: 'Unauthorized' };
+      const requesting = execToObjects('SELECT * FROM users WHERE id = ?', [uid]);
+      if (!requesting.length || requesting[0].role !== 'admin') return { error: 'Forbidden' };
+      
+      const request = execToObjects('SELECT * FROM ris_requests WHERE id = ?', [requestId]);
+      if (!request.length) return { error: 'Request not found' };
+      
+      // Get issued items (admin-provided quantities)
+      const issuedItems = execToObjects('SELECT * FROM issued_items WHERE request_id = ?', [requestId]);
+      
+      // Get request items to get item details
+      const requestItems = execToObjects('SELECT ri.*, (SELECT COUNT(*) FROM inventory WHERE item_id = ri.item_id) as hasInventory FROM request_items ri WHERE request_id = ?', [requestId]);
+      
+      let allSufficient = true;
+      const stockCheckResults = [];
+      
+      // First pass: check stock availability for all issued items
+      for (const issued of issuedItems) {
+        const requestItem = requestItems.find(ri => ri.item_id === issued.item_id);
+        if (!requestItem) continue;
+        
+        const inventory = getInventoryForItem(issued.item_id);
+        const available = inventory ? inventory.quantity : 0;
+        const sufficient = available >= issued.quantity;
+        
+        stockCheckResults.push({
+          itemId: issued.item_id,
+          itemName: requestItem.item_id, // Note: we'd need item name, using ID for now
+          requestedQuantity: issued.quantity,
+          availableQuantity: available,
+          sufficient
+        });
+        
+        if (!sufficient) allSufficient = false;
+      }
+      
+      // Second pass: if all sufficient, deduct from inventory
+      if (allSufficient) {
+        for (const issued of issuedItems) {
+          const inventory = getInventoryForItem(issued.item_id);
+          if (inventory) {
+            const previousStock = inventory.quantity;
+            const newStock = previousStock - issued.quantity;
+            db.run('UPDATE inventory SET quantity = ?, updated_at = ? WHERE item_id = ?', [newStock, new Date().toISOString(), issued.item_id]);
+            logStockHistory(issued.item_id, inventory.item_name, issued.quantity, 'release', previousStock, newStock, `Request ID: ${requestId}`);
+          }
+        }
+      }
+      
+      // Update request status
+      db.run('UPDATE ris_requests SET status = ?, stocks_available = ?, issued_date = ? WHERE id = ?',
+        ['released', allSufficient ? 1 : 0, new Date().toISOString().slice(0,10), requestId]
+      );
+      saveDatabase();
+      
+      const updated = getRequestWithItems(requestId);
+      updated.stocksAvailable = allSufficient;
+      updated.stockCheckResults = stockCheckResults;
+      return updated;
     }
 
     return { error: 'Unknown endpoint' };
