@@ -5,17 +5,30 @@ const initSqlJs = require('sql.js');
 const { autoUpdater } = require('electron-updater');
 const crypto = require('crypto');
 
-// Use ProgramData for shared, writable location as requested
-const programData = process.env['ProgramData'] || path.join('C:', 'ProgramData');
-const dbDir = path.join(programData, 'RIS Manager');
-if (!fs.existsSync(dbDir)) {
-  try {
-    fs.mkdirSync(dbDir, { recursive: true });
-  } catch (err) {
-    console.error('Failed to create ProgramData folder, falling back to userData', err);
+// Store DB under app userData so uninstall can remove app data.
+let dbPath = '';
+
+function resolveDatabasePath() {
+  const userDataDir = app.getPath('userData');
+  if (!fs.existsSync(userDataDir)) {
+    fs.mkdirSync(userDataDir, { recursive: true });
   }
+
+  const localDbPath = path.join(userDataDir, 'data.db');
+
+  // One-time migration from previous ProgramData location to preserve existing data on update.
+  const oldProgramDataPath = path.join(process.env['ProgramData'] || path.join('C:', 'ProgramData'), 'RIS Manager', 'data.db');
+  if (!fs.existsSync(localDbPath) && fs.existsSync(oldProgramDataPath)) {
+    try {
+      fs.copyFileSync(oldProgramDataPath, localDbPath);
+      console.log('Migrated database from ProgramData to userData');
+    } catch (err) {
+      console.warn('Failed to migrate old ProgramData database:', err.message);
+    }
+  }
+
+  return localDbPath;
 }
-const dbPath = path.join(dbDir, 'data.db');
 
 let db = null;
 let dbReady = false;
@@ -23,6 +36,7 @@ let dbReady = false;
 // Initialize sql.js and load/create database
 async function initializeDatabase() {
   try {
+    dbPath = resolveDatabasePath();
     const SQL = await initSqlJs();
     
     // Try to load existing database from file
@@ -115,21 +129,6 @@ async function initializeDatabase() {
     `;
     
     db.run(schema);
-    
-    // Seed admin user if not exists
-    const adminEmail = 'bryanfortuno@bac.gov';
-    const adminPassword = 'BAC2026';
-    const adminHash = crypto.createHash('sha256').update(adminPassword).digest('hex');
-    
-    try {
-      const check = db.exec('SELECT id FROM users WHERE email = ?', [adminEmail]);
-      if (!check || check.length === 0 || check[0].values.length === 0) {
-        db.run('INSERT INTO users (name, email, password_hash, role, department) VALUES (?, ?, ?, ?, ?)', 
-          ['Admin', adminEmail, adminHash, 'admin', 'Administration']);
-      }
-    } catch (e) {
-      console.log('Admin user already exists or error inserting:', e.message);
-    }
     
     // Persist database to file
     saveDatabase();

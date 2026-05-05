@@ -62,7 +62,8 @@
       "createStartMenuShortcut": true,
       "shortcutName": "RIS Manager",
       "perMachine": true,
-      "runAfterFinish": false
+      "runAfterFinish": false,
+      "deleteAppDataOnUninstall": true
     }
   }
 }
