@@ -1,0 +1,28 @@
+directories:
+  output: dist
+  buildResources: assets
+appId: com.rismanager.app
+productName: RIS Manager
+files:
+  - filter:
+      - Index.html
+      - app.js
+      - main.js
+      - preload.js
+      - apiClient.js
+      - apiStorageManager.js
+      - package.json
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  certificateFile: null
+  certificatePassword: <stripped sensitive data>
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: RIS Manager
+electronVersion: 41.2.2

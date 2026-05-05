@@ -5,6 +5,8 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -12,6 +14,42 @@
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
-    "electron": "^41.2.2"
+    "electron": "^41.2.2",
+    "electron-builder": "^25.1.6"
+  },
+  "build": {
+    "appId": "com.rismanager.app",
+    "productName": "RIS Manager",
+    "directories": {
+      "buildResources": "assets"
+    },
+    "files": [
+      "Index.html",
+      "app.js",
+      "main.js",
+      "preload.js",
+      "apiClient.js",
+      "apiStorageManager.js",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "certificateFile": null,
+      "certificatePassword": null
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "RIS Manager"
+    }
   }
 }
