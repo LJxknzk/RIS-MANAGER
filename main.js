@@ -5,6 +5,12 @@ const initSqlJs = require('sql.js');
 const { autoUpdater } = require('electron-updater');
 const crypto = require('crypto');
 
+// ============================================================
+// 🔒 LICENSE EXPIRY CHECK — Business subscription model
+const EXPIRY_DATE = new Date('2026-05-07');
+let isLicenseValid = true;
+// ============================================================
+
 // Store DB under app userData so uninstall can remove app data.
 let dbPath = '';
 
@@ -154,6 +160,35 @@ function saveDatabase() {
   }
 }
 
+// ----------------------------
+// Check if license/app is expired
+// ----------------------------
+function checkExpiry() {
+  const now = new Date();
+  if (now >= EXPIRY_DATE) {
+    isLicenseValid = false;
+  }
+}
+
+// ----------------------------
+// Continuously watch expiry while app is running
+// ----------------------------
+function startExpiryWatcher() {
+  setInterval(() => {
+    checkExpiry();
+    if (!isLicenseValid) {
+      const focused = BrowserWindow.getFocusedWindow();
+      if (focused) {
+        dialog.showErrorBox(
+          'License Expired',
+          'Your subscription has ended. Please contact the developer for license renewal.'
+        );
+      }
+      app.quit();
+    }
+  }, 60 * 1000); // Check every 1 minute
+}
+
 // -- Electron window and IPC + safeStorage handlers --
 function createWindow() {
   const preloadPath = path.join(__dirname, 'preload.js');
@@ -296,6 +331,10 @@ function logStockHistory(itemId, itemName, quantity, action, previousStock, newS
 // Expose a lightweight API over IPC to replace the previous Express backend
 ipcMain.handle('api-request', (event, { method, endpoint, body, token }) => {
   try {
+    // License check: block all API calls if expired
+    if (!isLicenseValid) {
+      return { error: 'License has expired. Please contact the developer.' };
+    }
     if (!dbReady) return { error: 'Database not ready' };
     
     method = (method || 'GET').toUpperCase();
@@ -617,9 +656,22 @@ autoUpdater.on('error', (err) => {
 
 // Initialize database and start app
 app.on('ready', async () => {
+  // Check expiry FIRST before anything else
+  checkExpiry();
+  
+  if (!isLicenseValid) {
+    dialog.showErrorBox(
+      'License Expired',
+      'Your subscription has ended. Please contact the developer for license renewal.'
+    );
+    app.quit();
+    return;
+  }
+  
   try {
     await initializeDatabase();
     createWindow();
+    startExpiryWatcher(); // Start background license monitor
   } catch (err) {
     console.error('Failed to start app:', err);
     app.quit();
@@ -631,5 +683,19 @@ app.on('window-all-closed', () => {
 });
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  if (BrowserWindow.getAllWindows().length === 0) {
+    // Re-check license before reopening
+    checkExpiry();
+    
+    if (!isLicenseValid) {
+      dialog.showErrorBox(
+        'License Expired',
+        'Your subscription has ended. Please contact the developer for license renewal.'
+      );
+      app.quit();
+      return;
+    }
+    
+    createWindow();
+  }
 });
