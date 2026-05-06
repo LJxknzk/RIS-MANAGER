@@ -1106,7 +1106,9 @@ const AdminInventory = ({ requests }) => {
   });
 
   filteredRequests.forEach(request => {
-    request.items.forEach(item => {
+    // Use issued items (actual quantities) instead of requested items
+    const itemsToUse = request.issuedItems && request.issuedItems.length > 0 ? request.issuedItems : request.items;
+    itemsToUse.forEach(item => {
       if (matrix[item.itemId]) {
         matrix[item.itemId][request.department] = (matrix[item.itemId][request.department] || 0) + item.quantity;
       }
