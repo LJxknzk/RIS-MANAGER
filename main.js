@@ -573,10 +573,15 @@ ipcMain.handle('api-request', (event, { method, endpoint, body, token }) => {
       if (!request.length) return { error: 'Request not found' };
       
       // Get issued items (admin-provided quantities)
-      const issuedItems = execToObjects('SELECT * FROM issued_items WHERE request_id = ?', [requestId]);
+      let issuedItems = execToObjects('SELECT * FROM issued_items WHERE request_id = ?', [requestId]);
       
       // Get request items to get item details
       const requestItems = execToObjects('SELECT ri.*, (SELECT COUNT(*) FROM inventory WHERE item_id = ri.item_id) as hasInventory FROM request_items ri WHERE request_id = ?', [requestId]);
+      
+      // CRITICAL FIX: If no issued items exist, use requested items as fallback
+      if (!issuedItems || issuedItems.length === 0) {
+        issuedItems = requestItems;
+      }
       
       let allSufficient = true;
       const stockCheckResults = [];
