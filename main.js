@@ -132,38 +132,20 @@ async function initializeDatabase() {
         name TEXT NOT NULL,
         acronym TEXT
       );
+      CREATE TABLE IF NOT EXISTS department_received_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        request_id INTEGER NOT NULL,
+        department TEXT NOT NULL,
+        item_id INTEGER NOT NULL,
+        item_name TEXT NOT NULL,
+        quantity_received INTEGER NOT NULL,
+        ris_number INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(request_id) REFERENCES ris_requests(id) ON DELETE CASCADE
+      );
     `;
     
     db.run(schema);
-    
-    // Initialize inventory with default items if empty
-    const existingInventory = execToObjects('SELECT COUNT(*) as count FROM inventory');
-    if (existingInventory[0].count === 0) {
-      console.log('Initializing inventory with default items...');
-      const defaultItems = [
-        // Office Items
-        {id: 1, name: 'Adding Slip', stock: 'OFF-001'},
-        {id: 2, name: 'Ball Pen (black)', stock: 'OFF-002'},
-        {id: 3, name: 'BALLPEN (BLUE)', stock: 'OFF-003'},
-        {id: 4, name: 'BALLPEN (RED)', stock: 'OFF-004'},
-        {id: 5, name: 'Battery 9v', stock: 'OFF-005'},
-        {id: 6, name: 'Battery AA', stock: 'OFF-006'},
-        {id: 7, name: 'Battery AAA', stock: 'OFF-007'},
-        {id: 8, name: 'Bond Paper (A4)', stock: 'OFF-008'},
-        {id: 9, name: 'Bond Paper (legal)', stock: 'OFF-009'},
-        {id: 10, name: 'Bond Paper (short)', stock: 'OFF-010'},
-      ];
-      
-      defaultItems.forEach(item => {
-        // Initialize with 100 units of stock
-        db.run(
-          'INSERT OR IGNORE INTO inventory (item_id, item_name, stock_number, quantity) VALUES (?, ?, ?, ?)',
-          [item.id, item.name, item.stock, 100]
-        );
-      });
-      
-      console.log(`Initialized ${defaultItems.length} inventory items`);
-    }
     
     // Persist database to file
     saveDatabase();
@@ -237,9 +219,13 @@ function createWindow() {
   mainWindow.webDevTools = false;
 
   // check for updates after window is ready
-  setTimeout(() => {
-    try { autoUpdater.checkForUpdates(); } catch (e) { console.warn('autoUpdater error', e); }
-  }, 2000);
+  if (app.isPackaged) {
+    setTimeout(() => {
+      autoUpdater.checkForUpdates().catch((e) => {
+        console.warn('autoUpdater error', e);
+      });
+    }, 2000);
+  }
 }
 
 // Safe storage IPC handlers
@@ -446,6 +432,12 @@ ipcMain.handle('api-request', (event, { method, endpoint, body, token }) => {
       return rows;
     }
 
+    // Department Received Items: GET /api/inventory/department-received
+    if (method === 'GET' && endpoint === '/api/inventory/department-received') {
+      const rows = execToObjects('SELECT * FROM department_received_items ORDER BY created_at DESC');
+      return rows;
+    }
+
     // Requests: GET /api/requests (user's requests), GET /api/requests/admin (all requests for admin)
     if (method === 'GET' && endpoint === '/api/requests') {
       const uid = userIdFromToken(token);
@@ -612,11 +604,6 @@ ipcMain.handle('api-request', (event, { method, endpoint, body, token }) => {
         issuedItems = requestItems;
       }
       
-      console.log(`[MARK RELEASED] Request ID: ${requestId}, Items to deduct: ${issuedItems.length}`);
-      issuedItems.forEach(item => {
-        console.log(`  - Item ${item.item_id}: Qty ${item.quantity}`);
-      });
-      
       let allSufficient = true;
       const stockCheckResults = [];
       
@@ -625,18 +612,9 @@ ipcMain.handle('api-request', (event, { method, endpoint, body, token }) => {
         const requestItem = requestItems.find(ri => ri.item_id === issued.item_id);
         if (!requestItem) continue;
         
-        // Ensure inventory record exists
         const inventory = getInventoryForItem(issued.item_id);
-        if (!inventory) {
-          console.log(`[INVENTORY CREATE] Creating inventory record for item ${issued.item_id}`);
-          ensureInventoryRecord(issued.item_id, 'Item ' + issued.item_id, 'STOCK-' + issued.item_id);
-        }
-        
-        const inv = getInventoryForItem(issued.item_id);
-        const available = inv ? inv.quantity : 0;
+        const available = inventory ? inventory.quantity : 0;
         const sufficient = available >= issued.quantity;
-        
-        console.log(`[STOCK CHECK] Item ${issued.item_id}: Available=${available}, Required=${issued.quantity}, Sufficient=${sufficient}`);
         
         stockCheckResults.push({
           itemId: issued.item_id,
@@ -649,27 +627,30 @@ ipcMain.handle('api-request', (event, { method, endpoint, body, token }) => {
         if (!sufficient) allSufficient = false;
       }
       
-      // Second pass: if all sufficient, deduct from inventory
+      // Second pass: if all sufficient, ADD to department inventory AND SUBTRACT from stocks
       if (allSufficient) {
         for (const issued of issuedItems) {
           const inventory = getInventoryForItem(issued.item_id);
           if (inventory) {
+            // ADD to department received items (inventory count for that department)
+            db.run(
+              'INSERT INTO department_received_items (request_id, department, item_id, item_name, quantity_received, ris_number, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+              [requestId, request[0].department, issued.item_id, inventory.item_name, issued.quantity, request[0].ris_number, new Date().toISOString()]
+            );
+            
+            // SUBTRACT from available stocks
             const previousStock = inventory.quantity;
             const newStock = previousStock - issued.quantity;
             db.run('UPDATE inventory SET quantity = ?, updated_at = ? WHERE item_id = ?', [newStock, new Date().toISOString(), issued.item_id]);
-            logStockHistory(issued.item_id, inventory.item_name, issued.quantity, 'release', previousStock, newStock, `Request ID: ${requestId}`);
-            console.log(`[STOCK DEDUCTION] Item ${issued.item_id}: ${previousStock} - ${issued.quantity} = ${newStock}`);
+            logStockHistory(issued.item_id, inventory.item_name, issued.quantity, 'release', previousStock, newStock, `Request ID: ${requestId} - Department: ${request[0].department}`);
           }
         }
-        // Save database immediately after inventory updates
-        saveDatabase();
       }
       
       // Update request status
       db.run('UPDATE ris_requests SET status = ?, stocks_available = ?, issued_date = ? WHERE id = ?',
         ['released', allSufficient ? 1 : 0, new Date().toISOString().slice(0,10), requestId]
       );
-      saveDatabase();
       saveDatabase();
       
       const updated = getRequestWithItems(requestId);
