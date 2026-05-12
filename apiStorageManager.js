@@ -5,8 +5,8 @@ let tokenCache = null;
 let currentUserCache = null;
 
 const APIStorageManager = {
-  // API configuration
-  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5000',
+  // API configuration (not used in Electron - uses IPC instead)
+  baseURL: 'http://localhost:5000',
   
   // Set API URL (call this before login)
   setBaseURL: (url) => {
@@ -24,6 +24,12 @@ const APIStorageManager = {
         console.warn('Failed to store token securely:', err);
       }
     }
+    // Fallback: persist token in localStorage so reloads keep the session when safeStorage isn't available
+    try {
+      localStorage.setItem('ris_jwt_token', token);
+    } catch (e) {
+      // ignore
+    }
   },
 
   getToken: async () => {
@@ -40,6 +46,16 @@ const APIStorageManager = {
         console.warn('Failed to retrieve token:', err);
       }
     }
+    // Fallback: try localStorage
+    try {
+      const t = localStorage.getItem('ris_jwt_token');
+      if (t) {
+        tokenCache = t;
+        return t;
+      }
+    } catch (e) {
+      // ignore
+    }
     return null;
   },
 
@@ -51,6 +67,11 @@ const APIStorageManager = {
       } catch (err) {
         console.warn('Failed to clear token:', err);
       }
+    }
+    try {
+      localStorage.removeItem('ris_jwt_token');
+    } catch (e) {
+      // ignore
     }
   },
 
@@ -91,6 +112,16 @@ const APIStorageManager = {
   login: async (email, password) => {
     try {
       const result = await APIStorageManager.post('/auth/login', { email, password });
+      if (result.error) {
+        throw new Error(result.error);
+      }
+      if (!result.user) {
+        throw new Error('No user returned from server');
+      }
+      if (!result.user.id) {
+        console.warn('User object missing id:', result.user);
+        throw new Error('User record is invalid (missing ID)');
+      }
       await APIStorageManager.setToken(result.token);
       APIStorageManager.setCurrentUser(result.user);
       APIStorageManager.setRememberedUserId(result.user.id);
@@ -160,6 +191,18 @@ const APIStorageManager = {
     }
   },
 
+  // Get ALL requests (admin only)
+  getAdminRequests: async () => {
+    try {
+      const result = await APIStorageManager.get('/api/requests/admin');
+      console.log('[getAdminRequests] Fetched admin requests:', Array.isArray(result) ? result.length : 0, 'requests');
+      return result || [];
+    } catch (err) {
+      console.error('Failed to fetch admin requests:', err);
+      return [];
+    }
+  },
+
   getSingleRequest: async (requestId) => {
     try {
       return await APIStorageManager.get(`/api/requests/${requestId}`);
@@ -172,7 +215,9 @@ const APIStorageManager = {
   // Create new RIS request
   createRequest: async (requestData) => {
     try {
-      return await APIStorageManager.post('/api/requests', requestData);
+      const res = await APIStorageManager.post('/api/requests', requestData);
+      try { window.dispatchEvent(new CustomEvent('ris:dataChanged')); } catch(e) {}
+      return res;
     } catch (err) {
       throw err;
     }
@@ -181,7 +226,9 @@ const APIStorageManager = {
   // Update request items (admin)
   updateRequest: async (requestId, updateData) => {
     try {
-      return await APIStorageManager.put(`/api/requests/${requestId}`, updateData);
+      const res = await APIStorageManager.put(`/api/requests/${requestId}`, updateData);
+      try { window.dispatchEvent(new CustomEvent('ris:dataChanged')); } catch(e) {}
+      return res;
     } catch (err) {
       throw err;
     }
@@ -190,7 +237,9 @@ const APIStorageManager = {
   // Approve request (admin)
   approveRequest: async (requestId) => {
     try {
-      return await APIStorageManager.post(`/api/requests/${requestId}/approve`, {});
+      const res = await APIStorageManager.post(`/api/requests/${requestId}/approve`, {});
+      try { window.dispatchEvent(new CustomEvent('ris:dataChanged')); } catch(e) {}
+      return res;
     } catch (err) {
       throw err;
     }
@@ -199,7 +248,9 @@ const APIStorageManager = {
   // Reject request (admin)
   rejectRequest: async (requestId) => {
     try {
-      return await APIStorageManager.post(`/api/requests/${requestId}/reject`, {});
+      const res = await APIStorageManager.post(`/api/requests/${requestId}/reject`, {});
+      try { window.dispatchEvent(new CustomEvent('ris:dataChanged')); } catch(e) {}
+      return res;
     } catch (err) {
       throw err;
     }
@@ -208,7 +259,9 @@ const APIStorageManager = {
   // Mark request as released (admin)
   markReleased: async (requestId) => {
     try {
-      return await APIStorageManager.post(`/api/requests/${requestId}/mark-released`, {});
+      const res = await APIStorageManager.post(`/api/requests/${requestId}/mark-released`, {});
+      try { window.dispatchEvent(new CustomEvent('ris:dataChanged')); } catch(e) {}
+      return res;
     } catch (err) {
       throw err;
     }
@@ -217,7 +270,9 @@ const APIStorageManager = {
   // Update issued items (admin)
   updateIssuedItems: async (requestId, issuedItems) => {
     try {
-      return await APIStorageManager.post(`/api/requests/${requestId}/issued-items`, { issuedItems });
+      const res = await APIStorageManager.post(`/api/requests/${requestId}/issued-items`, { issuedItems });
+      try { window.dispatchEvent(new CustomEvent('ris:dataChanged')); } catch(e) {}
+      return res;
     } catch (err) {
       throw err;
     }
@@ -226,7 +281,20 @@ const APIStorageManager = {
   // ============= INVENTORY =============
   getInventory: async () => {
     try {
-      return await APIStorageManager.get('/api/inventory');
+      const rows = await APIStorageManager.get('/api/inventory');
+      console.log(`[getInventory] Received ${Array.isArray(rows) ? rows.length : 0} items from API`);
+      if (Array.isArray(rows)) {
+        const result = rows.reduce((acc, row) => {
+          // API returns camelCase field names (itemId, not item_id)
+          const itemId = parseInt(row.itemId) || row.itemId;
+          acc[itemId] = row.quantity;
+          return acc;
+        }, {});
+        console.log(`[getInventory] Normalized inventory with ${Object.keys(result).length} keys. Sample:`, Object.keys(result).slice(0, 10).map(k => `${k}:${result[k]}`).join(', '));
+        return result;
+      }
+      console.log(`[getInventory] Response is not an array:`, rows);
+      return rows || {};
     } catch (err) {
       console.error('Failed to fetch inventory:', err);
       return {};
@@ -245,11 +313,13 @@ const APIStorageManager = {
   // Restock item (admin)
   restockItem: async (itemId, quantity, notes = '') => {
     try {
-      return await APIStorageManager.post('/api/inventory/restock', {
+      const res = await APIStorageManager.post('/api/inventory/restock', {
         itemId,
         quantity,
         notes,
       });
+      try { window.dispatchEvent(new CustomEvent('ris:dataChanged')); } catch(e) {}
+      return res;
     } catch (err) {
       throw err;
     }

@@ -549,9 +549,35 @@ const LoginPage = ({ onLogin }) => {
     <div style={styles.loginContainer}>
       <div style={styles.loginBox}>
         <div style={styles.loginHeader}>
-          <div style={styles.loginIcon}>📑</div>
-          <h1 style={styles.loginTitle}>RIS Management System</h1>
-          <p style={styles.loginSubtitle}>Document Request & Tracking</p>
+          {/* City of General Trias Official Seal */}
+          <div style={{
+            width: '140px',
+            height: '140px',
+            margin: '0 auto 20px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+            borderRadius: '50%',
+            overflow: 'hidden'
+          }}>
+            <img 
+              src="assets/logo/logo.png" 
+              alt="City of General Trias Official Seal"
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                borderRadius: '50%'
+              }}
+              onError={(e) => {
+                // Fallback if image not found
+                e.target.style.display = 'none';
+              }}
+            />
+          </div>
+          <h1 style={{...styles.loginTitle, textAlign: 'center', marginTop: '10px'}}>City of General Trias</h1>
+          <p style={{...styles.loginSubtitle, textAlign: 'center', fontSize: '14px'}}>Requisition & Issue System</p>
         </div>
 
         <div style={styles.loginForm}>
@@ -605,8 +631,25 @@ const LoginPage = ({ onLogin }) => {
           <button onClick={handleSubmit} style={styles.loginButton} disabled={isLoading}>
             {isLoading ? 'Signing in...' : 'Sign In'}
           </button>
+          
+          {/* Example Credentials */}
+          <div style={{backgroundColor: colors.lightGray, padding: '12px', borderRadius: '4px', marginTop: '15px', fontSize: '12px', color: colors.darkGray}}>
+            <p style={{margin: '0 0 8px 0', fontWeight: 'bold'}}>📝 Example Credentials:</p>
+            <div style={{marginBottom: '8px'}}>
+              <strong>Admin:</strong><br/>
+              Email: <code style={{fontFamily: 'monospace', backgroundColor: colors.white, padding: '2px 4px'}}>bryanfortuno@bac.gov</code><br/>
+              Password: <code style={{fontFamily: 'monospace', backgroundColor: colors.white, padding: '2px 4px'}}>BAC2026</code>
+            </div>
+            <div>
+              <strong>Department Users:</strong><br/>
+              Email: <code style={{fontFamily: 'monospace', backgroundColor: colors.white, padding: '2px 4px'}}>{'{acronym}@local.gov'}</code><br/>
+              Password: <code style={{fontFamily: 'monospace', backgroundColor: colors.white, padding: '2px 4px'}}>{'{ACRONYM}2026'}</code><br/>
+              <span style={{fontSize: '11px'}}>Example: aco@local.gov / ACO2026 (Accounting Office)</span>
+            </div>
+          </div>
+          
           <div style={styles.signUpLink}>
-            Pre-seeded department and admin accounts only.
+            Pre-seeded department and admin accounts only. Check Admin panel for complete user list.
           </div>
         </div>
       </div>
@@ -2350,9 +2393,33 @@ const UserNewRequest = ({ currentUser, onSubmitRequest, requests }) => {
 
 // User Accounts Management Component
 const UserAccountsManagement = ({ currentUser }) => {
-  const [showPasswordFor, setShowPasswordFor] = useState(null);
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
-  const timeoutRef = React.useRef(null);
+
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        setLoading(true);
+        if (typeof APIStorageManager !== 'undefined' && APIStorageManager.getUsers) {
+          const allUsers = await APIStorageManager.getUsers();
+          setUsers(Array.isArray(allUsers) ? allUsers : []);
+          console.log('[UserAccountsManagement] Fetched users from API:', allUsers);
+        } else {
+          // Fallback to localStorage
+          const localUsers = StorageManager.getUsers();
+          setUsers(Array.isArray(localUsers) ? localUsers : []);
+        }
+      } catch (err) {
+        console.error('[UserAccountsManagement] Failed to fetch users:', err);
+        setUsers([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchUsers();
+  }, []);
 
   const handleCopyToClipboard = (text) => {
     navigator.clipboard.writeText(text);
@@ -2360,109 +2427,93 @@ const UserAccountsManagement = ({ currentUser }) => {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const clearHideTimeout = () => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-  };
-
-  const handleToggleShow = (id) => {
-    // Toggle visibility; if showing a password, auto-hide after 5s
-    if (showPasswordFor === id) {
-      setShowPasswordFor(null);
-      clearHideTimeout();
-      return;
-    }
-
-    // Showing a new password: clear any previous timeout and set a new one
-    setShowPasswordFor(id);
-    clearHideTimeout();
-    timeoutRef.current = setTimeout(() => {
-      setShowPasswordFor(null);
-      timeoutRef.current = null;
-    }, 5000);
-  };
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => clearHideTimeout();
-  }, []);
-
-  const users = StorageManager.getUsers();
   const isAdmin = (currentUser.role || '').toLowerCase() === 'admin';
 
   const getInitialPassword = (user) => {
-    return (user.role || '').toLowerCase() === 'admin'
-      ? 'BAC2026'
-      : `${String(user.department || '')
-          .replace(/[^a-z0-9]+/gi, ' ')
-          .trim()
-          .split(/\s+/)
-          .join('')
-          .slice(0, 3)
-          .toUpperCase()
-          .padEnd(3, 'X')}2026`;
+    // Admin always uses BAC2026
+    if ((user.role || '').toLowerCase() === 'admin') {
+      return 'BAC2026';
+    }
+    
+    // For regular users, extract the email prefix and convert to password
+    // Email format: {acronym}@local.gov
+    // Password format: {ACRONYM}2026
+    // Examples:
+    // aox@local.gov -> AOX2026
+    // ao2@local.gov -> AO22026 (collision-aware index suffix)
+    if (user.email) {
+      const emailPrefix = user.email.split('@')[0].toUpperCase();
+      return emailPrefix + '2026';
+    }
+    
+    // Fallback to department-based calculation if email not available
+    return `${String(user.department || '')
+      .replace(/[^a-z0-9]+/gi, ' ')
+      .trim()
+      .split(/\s+/)
+      .map(word => word[0])
+      .join('')
+      .slice(0, 3)
+      .toUpperCase()
+      .padEnd(3, 'X')}2026`;
   };
 
   if (isAdmin) {
     return (
       <div style={styles.pageContainer}>
         <h1 style={styles.pageTitle}>👥 User Accounts (Admin)</h1>
-        <div style={{backgroundColor: colors.lightGray, padding: '15px', borderRadius: '4px', marginBottom: '20px'}}>
+      <div style={{backgroundColor: colors.lightGray, padding: '15px', borderRadius: '4px', marginBottom: '20px'}}>
           <p style={{margin: 0, fontSize: '13px', color: colors.darkGray}}>
-            Admin can view all users' emails, departments, roles and initial passwords.
+            Admin can view all users' credentials: emails, departments, roles and initial passwords. Total: {users.length} users. Click "Copy" to copy password to clipboard.
           </p>
         </div>
 
-        <div style={{overflowX: 'auto', backgroundColor: colors.white, borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)'}}>
-          <table style={{width: '100%', borderCollapse: 'collapse'}}>
-            <thead>
-              <tr style={{backgroundColor: colors.navy, color: colors.white}}>
-                <th style={styles.tableCell}>ID</th>
-                <th style={styles.tableCell}>Full Name</th>
-                <th style={styles.tableCell}>Email</th>
-                <th style={styles.tableCell}>Department</th>
-                <th style={styles.tableCell}>Role</th>
-                <th style={styles.tableCell}>Initial Password</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((user) => (
-                <tr key={user.id} style={styles.tableRow}>
-                  <td style={styles.tableCell}>{user.id}</td>
-                  <td style={styles.tableCell}>
-                    {(user.role || '').toLowerCase() === 'admin' ? user.name : '—'}
-                  </td>
-                  <td style={styles.tableCell}>{user.email}</td>
-                  <td style={styles.tableCell}>{user.department}</td>
-                  <td style={styles.tableCell}>{(user.role || 'user').toUpperCase()}</td>
-                  <td style={styles.tableCell}>
-                    <div style={{display: 'flex', gap: '8px', alignItems: 'center'}}>
-                      <button
-                        onClick={() => handleToggleShow(user.id)}
-                        style={{...styles.button, backgroundColor: colors.amber, flex: 'none', padding: '8px 12px'}}
-                      >
-                        {showPasswordFor === user.id ? 'Hide' : 'Show'}
-                      </button>
-                      {showPasswordFor === user.id && (
-                        <>
-                          <code style={{fontFamily: 'monospace', fontWeight: 'bold', color: colors.navy}}>{getInitialPassword(user)}</code>
-                          <button
-                            onClick={() => handleCopyToClipboard(getInitialPassword(user))}
-                            style={{...styles.button, backgroundColor: colors.forestGreen, flex: 'none', padding: '8px 12px'}}
-                          >
-                            {copied ? '✓' : 'Copy'}
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </td>
+        {loading ? (
+          <div style={{textAlign: 'center', padding: '40px', color: colors.darkGray}}>
+            ⏳ Loading users...
+          </div>
+        ) : (
+          <div style={{overflowX: 'auto', overflowY: 'auto', maxHeight: '70vh', backgroundColor: colors.white, borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)'}}>
+            <table style={{width: '100%', borderCollapse: 'collapse'}}>
+              <thead style={{position: 'sticky', top: 0, zIndex: 10}}>
+                <tr style={{backgroundColor: colors.navy, color: colors.white}}>
+                  <th style={styles.tableCell}>ID</th>
+                  <th style={styles.tableCell}>Full Name</th>
+                  <th style={styles.tableCell}>Email</th>
+                  <th style={styles.tableCell}>Department</th>
+                  <th style={styles.tableCell}>Role</th>
+                  <th style={styles.tableCell}>Designation</th>
+                  <th style={styles.tableCell}>Initial Password</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {users.map((user) => (
+                  <tr key={user.id} style={styles.tableRow}>
+                    <td style={styles.tableCell}>{user.id}</td>
+                    <td style={styles.tableCell}>
+                      {user.name}
+                    </td>
+                    <td style={{...styles.tableCell, fontFamily: 'monospace', fontSize: '12px', color: colors.forestGreen, fontWeight: 'bold'}}>{user.email}</td>
+                    <td style={styles.tableCell}>{user.department}</td>
+                    <td style={styles.tableCell}>{(user.role || 'user').toUpperCase()}</td>
+                    <td style={styles.tableCell}>{user.designation || '—'}</td>
+                    <td style={styles.tableCell}>
+                      <div style={{display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'center'}}>
+                        <code style={{fontFamily: 'monospace', fontWeight: 'bold', color: colors.navy, fontSize: '12px', backgroundColor: colors.lightGray, padding: '6px 10px', borderRadius: '3px'}}>{getInitialPassword(user)}</code>
+                        <button
+                          onClick={() => handleCopyToClipboard(getInitialPassword(user))}
+                          style={{...styles.button, backgroundColor: colors.forestGreen, flex: 'none', padding: '6px 10px', fontSize: '12px'}}
+                        >
+                          {copied ? '✓ Copied' : 'Copy'}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     );
   }
@@ -2624,8 +2675,10 @@ const RISManagementApp = () => {
           if (result && result.success && result.user) {
             setCurrentUser(result.user);
             setActiveTab(result.user.role === 'admin' ? 'dashboard' : 'myRequests');
-            // Fetch data from API
-            const allRequests = await APIStorageManager.getRequests();
+            // Fetch data from API - admin users get ALL requests
+            const allRequests = result.user.role === 'admin'
+              ? await APIStorageManager.getAdminRequests()
+              : await APIStorageManager.getRequests();
             setRequests(allRequests);
             const inv = await APIStorageManager.getInventory();
             setInventory(inv);
@@ -2655,6 +2708,27 @@ const RISManagementApp = () => {
     };
 
     initializeApp();
+
+    // Refresh handler for cross-component data changes
+    const onDataChanged = async () => {
+      try {
+        if (typeof APIStorageManager !== 'undefined' && currentUser) {
+          const allRequests = currentUser.role === 'admin'
+            ? await APIStorageManager.getAdminRequests()
+            : await APIStorageManager.getRequests();
+          setRequests(allRequests);
+          const inv = await APIStorageManager.getInventory();
+          setInventory(inv);
+        }
+      } catch (err) {
+        console.warn('Failed to refresh data on change event:', err);
+      }
+    };
+    window.addEventListener('ris:dataChanged', onDataChanged);
+
+    return () => {
+      window.removeEventListener('ris:dataChanged', onDataChanged);
+    };
   }, []);
 
   if (!isInitialized) {
@@ -2673,7 +2747,10 @@ const RISManagementApp = () => {
     setActiveTab(user.role === 'admin' ? 'dashboard' : 'myRequests');
     // Fetch fresh data after login
     try {
-      const allRequests = await APIStorageManager.getRequests();
+      // Admin users should fetch ALL requests, regular users fetch only theirs
+      const allRequests = user.role === 'admin' 
+        ? await APIStorageManager.getAdminRequests()
+        : await APIStorageManager.getRequests();
       setRequests(allRequests);
       const inv = await APIStorageManager.getInventory();
       setInventory(inv);
@@ -2696,8 +2773,10 @@ const RISManagementApp = () => {
     try {
       if (typeof APIStorageManager !== 'undefined') {
         await APIStorageManager.approveRequest(requestId);
-        // Refresh requests from API
-        const updated = await APIStorageManager.getRequests();
+        // Refresh requests from API - use admin endpoint if user is admin
+        const updated = currentUser.role === 'admin'
+          ? await APIStorageManager.getAdminRequests()
+          : await APIStorageManager.getRequests();
         setRequests(updated);
       } else {
         const risNumber = StorageManager.getNextRISNumber();
@@ -2717,7 +2796,10 @@ const RISManagementApp = () => {
     try {
       if (typeof APIStorageManager !== 'undefined') {
         await APIStorageManager.rejectRequest(requestId);
-        const updated = await APIStorageManager.getRequests();
+        // Refresh requests from API - use admin endpoint if user is admin
+        const updated = currentUser.role === 'admin'
+          ? await APIStorageManager.getAdminRequests()
+          : await APIStorageManager.getRequests();
         setRequests(updated);
       } else {
         const updated = requests.map(r =>
@@ -2735,8 +2817,33 @@ const RISManagementApp = () => {
   const handleMarkReleased = async (requestId) => {
     try {
       if (typeof APIStorageManager !== 'undefined') {
+        console.log(`[handleMarkReleased] Starting for request ${requestId}`);
         const response = await APIStorageManager.markReleased(requestId);
-        const updated = await APIStorageManager.getRequests();
+        console.log(`[handleMarkReleased] Mark released response received:`, response.stockCheckResults);
+        
+        // OPTION 1: Use inventory returned from mark-released endpoint (NEW)
+        if (response.inventoryAfterRelease) {
+          console.log(`[handleMarkReleased] Using inventory from mark-released response:`, response.inventoryAfterRelease);
+          setInventory(response.inventoryAfterRelease);
+        } else {
+          // OPTION 2: Fallback to fetching separately (old behavior)
+          const updated = currentUser.role === 'admin'
+            ? await APIStorageManager.getAdminRequests()
+            : await APIStorageManager.getRequests();
+          setRequests(updated);
+          
+          console.log(`[handleMarkReleased] Calling getInventory()...`);
+          const latestInventory = await APIStorageManager.getInventory();
+          console.log(`[handleMarkReleased] getInventory() returned:`, latestInventory);
+          
+          setInventory(latestInventory);
+          console.log(`[handleMarkReleased] setInventory() called with new data`);
+        }
+        
+        // Update requests - use admin endpoint if user is admin
+        const updated = currentUser.role === 'admin'
+          ? await APIStorageManager.getAdminRequests()
+          : await APIStorageManager.getRequests();
         setRequests(updated);
         
         // Display stock availability status
@@ -2748,7 +2855,7 @@ const RISManagementApp = () => {
             .map(item => `  • ${item.itemName}: Requested ${item.requestedQuantity}, Available ${item.availableQuantity}`)
             .join('\n');
           
-          alert(`✓ Request marked as released\n✕ INSUFFICIENT STOCKS - No inventory deduction made\n\nInsufficient items:\n${insufficientItems}`);
+          alert(`✓ Request marked as released\n✓ Inventory deducted for all items\n⚠ WARNING - Some items had insufficient stock:\n${insufficientItems}`);
         }
       } else {
         const updated = requests.map(r =>
@@ -2767,7 +2874,10 @@ const RISManagementApp = () => {
     try {
       if (typeof APIStorageManager !== 'undefined') {
         await APIStorageManager.updateIssuedItems(requestId, issuedItems);
-        const updated = await APIStorageManager.getRequests();
+        // Refresh requests from API - use admin endpoint if user is admin
+        const updated = currentUser.role === 'admin'
+          ? await APIStorageManager.getAdminRequests()
+          : await APIStorageManager.getRequests();
         setRequests(updated);
       } else {
         const todayDate = new Date().toISOString().split('T')[0];
@@ -2787,7 +2897,10 @@ const RISManagementApp = () => {
     try {
       if (typeof APIStorageManager !== 'undefined') {
         await APIStorageManager.updateRequest(requestId, updateData);
-        const updated = await APIStorageManager.getRequests();
+        // Refresh requests from API - use admin endpoint if user is admin
+        const updated = currentUser.role === 'admin'
+          ? await APIStorageManager.getAdminRequests()
+          : await APIStorageManager.getRequests();
         setRequests(updated);
       } else {
         const updated = requests.map(r => {
@@ -2997,9 +3110,32 @@ const RISManagementApp = () => {
       {/* Side Navigation */}
       <nav style={styles.sidebar}>
         <div style={{...styles.logo, display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-          <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
-            <div style={styles.logoIcon}>📑</div>
-            <div style={styles.logoText}>RIS System</div>
+          <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+            <div style={{
+              width: '48px',
+              height: '48px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              overflow: 'hidden',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
+            }}>
+              <img 
+                src="assets/logo/logo-64.png"
+                alt="City Seal"
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  borderRadius: '50%'
+                }}
+              />
+            </div>
+            <div style={{display: 'flex', flexDirection: 'column', gap: '2px'}}>
+              <div style={{...styles.logoText, fontSize: '12px', margin: '0', lineHeight: '1'}}>City of General Trias</div>
+              <div style={{fontSize: '11px', color: colors.amber, fontWeight: 'bold', margin: '0'}}>RIS System</div>
+            </div>
           </div>
           <div style={{position: 'relative'}}>
             <button

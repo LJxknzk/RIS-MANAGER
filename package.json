@@ -1,21 +1,26 @@
 {
   "name": "ris-manager",
-  "version": "1.2.0",
-  "description": "RIS Manager - standalone",
+  "version": "1.0.0",
+  "description": "RIS Manager",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "build": "electron-builder",
     "build:win": "electron-builder --win",
+    "setup:seal": "node setup-official-seal.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
-    "sql.js": "^1.8.0",
-    "electron-updater": "^4.6.5"
+    "electron-updater": "^4.6.5",
+    "sql.js": "^1.8.0"
   },
   "devDependencies": {
     "electron": "^41.2.2",
-    "electron-builder": "^25.1.6"
+    "electron-builder": "^25.1.6",
+    "ico": "^0.3.3",
+    "icojs": "^0.23.0",
+    "sharp": "^0.34.5",
+    "to-ico": "^1.1.5"
   },
   "keywords": [],
   "author": "",
@@ -24,6 +29,7 @@
   "build": {
     "appId": "com.rismanager.app",
     "productName": "RIS Manager",
+    "artifactName": "RIS Manager - City of General Trias Setup ${version}.${ext}",
     "directories": {
       "buildResources": "assets"
     },
@@ -34,7 +40,8 @@
       "preload.js",
       "apiClient.js",
       "apiStorageManager.js",
-      "package.json"
+      "package.json",
+      "assets/**/*"
     ],
     "win": {
       "target": [
@@ -45,6 +52,7 @@
           ]
         }
       ],
+      "icon": "assets/logo/logo.ico",
       "certificateFile": null,
       "certificatePassword": null
     },
@@ -60,10 +68,13 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "RIS Manager",
+      "shortcutName": "RIS Manager - City of General Trias",
       "perMachine": true,
-      "runAfterFinish": false,
-      "deleteAppDataOnUninstall": true
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "assets/logo/logo.ico",
+      "installerHeaderIcon": "assets/logo/logo.ico",
+      "installerSidebar": "assets/logo/logo-128.png"
     }
   }
 }
