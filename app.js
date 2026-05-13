@@ -464,7 +464,7 @@ const StorageManager = {
 };
 
 // Admin Dashboard
-const AdminDashboard = ({ requests }) => {
+const AdminDashboard = ({ requests, onStatusCardClick }) => {
   const approved = requests.filter(r => r.status === 'approved').length;
   const pending = requests.filter(r => r.status === 'pending').length;
   const released = requests.filter(r => r.status === 'released').length;
@@ -475,19 +475,63 @@ const AdminDashboard = ({ requests }) => {
       <h1 style={styles.pageTitle}>📊 Admin Dashboard</h1>
       
       <div style={styles.statsGrid}>
-        <div style={{ ...styles.statCard, borderTop: `4px solid ${colors.navy}` }}>
+        <div 
+          style={{ ...styles.statCard, borderTop: `4px solid ${colors.navy}`, cursor: 'pointer', transition: 'transform 0.2s, box-shadow 0.2s' }}
+          onClick={() => onStatusCardClick('all')}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = 'translateY(-4px)';
+            e.currentTarget.style.boxShadow = '0 8px 16px rgba(0,0,0,0.2)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+          }}
+        >
           <div style={styles.statLabel}>Total RIS Requests</div>
           <div style={styles.statValue}>{total}</div>
         </div>
-        <div style={{ ...styles.statCard, borderTop: `4px solid ${colors.lightGreen}` }}>
+        <div 
+          style={{ ...styles.statCard, borderTop: `4px solid ${colors.lightGreen}`, cursor: 'pointer', transition: 'transform 0.2s, box-shadow 0.2s' }}
+          onClick={() => onStatusCardClick('approved')}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = 'translateY(-4px)';
+            e.currentTarget.style.boxShadow = '0 8px 16px rgba(0,0,0,0.2)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+          }}
+        >
           <div style={styles.statLabel}>Approved</div>
           <div style={styles.statValue}>{approved}</div>
         </div>
-        <div style={{ ...styles.statCard, borderTop: `4px solid ${colors.amber}` }}>
+        <div 
+          style={{ ...styles.statCard, borderTop: `4px solid ${colors.amber}`, cursor: 'pointer', transition: 'transform 0.2s, box-shadow 0.2s' }}
+          onClick={() => onStatusCardClick('pending')}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = 'translateY(-4px)';
+            e.currentTarget.style.boxShadow = '0 8px 16px rgba(0,0,0,0.2)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+          }}
+        >
           <div style={styles.statLabel}>Pending</div>
           <div style={styles.statValue}>{pending}</div>
         </div>
-        <div style={{ ...styles.statCard, borderTop: `4px solid ${colors.forestGreen}` }}>
+        <div 
+          style={{ ...styles.statCard, borderTop: `4px solid ${colors.forestGreen}`, cursor: 'pointer', transition: 'transform 0.2s, box-shadow 0.2s' }}
+          onClick={() => onStatusCardClick('released')}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = 'translateY(-4px)';
+            e.currentTarget.style.boxShadow = '0 8px 16px rgba(0,0,0,0.2)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+          }}
+        >
           <div style={styles.statLabel}>Released</div>
           <div style={styles.statValue}>{released}</div>
         </div>
@@ -634,14 +678,19 @@ const LoginPage = ({ onLogin }) => {
 };
 
 // Admin RIS Requests Manager
-const AdminRISRequests = ({ requests, onApprove, onReject, onMarkReleased, onUpdateIssued, onUpdateRequest }) => {
+const AdminRISRequests = ({ requests, onApprove, onReject, onMarkReleased, onUpdateIssued, onUpdateRequest, initialFilterStatus = 'all' }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterStatus, setFilterStatus] = useState(initialFilterStatus);
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [issuedQuantities, setIssuedQuantities] = useState({});
   const [editingRequest, setEditingRequest] = useState(null);
   const [editData, setEditData] = useState({ description: '', items: {} });
   const [hasChanges, setHasChanges] = useState(false);
+
+  // Update filter status when coming from dashboard
+  useEffect(() => {
+    setFilterStatus(initialFilterStatus);
+  }, [initialFilterStatus]);
 
   useEffect(() => {
     if (selectedRequest?.issuedItems) {
@@ -2641,6 +2690,7 @@ const RISManagementApp = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [showSettingsDropdown, setShowSettingsDropdown] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [dashboardFilterStatus, setDashboardFilterStatus] = useState('all');
 
   useEffect(() => {
     const initializeApp = async () => {
@@ -3286,7 +3336,15 @@ const RISManagementApp = () => {
         
         {currentUser.role === 'admin' ? (
           <>
-            {activeTab === 'dashboard' && <AdminDashboard requests={requests} />}
+            {activeTab === 'dashboard' && (
+              <AdminDashboard 
+                requests={requests} 
+                onStatusCardClick={(status) => {
+                  setDashboardFilterStatus(status);
+                  setActiveTab('risRequests');
+                }}
+              />
+            )}
             {activeTab === 'risRequests' && (
               <AdminRISRequests
                 requests={requests}
@@ -3295,6 +3353,7 @@ const RISManagementApp = () => {
                 onMarkReleased={handleMarkReleased}
                 onUpdateIssued={handleUpdateIssued}
                 onUpdateRequest={handleUpdateRequest}
+                initialFilterStatus={dashboardFilterStatus}
               />
             )}
             {activeTab === 'inventory' && <AdminInventory requests={requests} />}
