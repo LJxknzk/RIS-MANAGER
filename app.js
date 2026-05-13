@@ -1493,7 +1493,16 @@ const AdminRISImages = ({ requests, onUpdateIssued }) => {
                           {/* FORM TITLE */}
                           <div style={{textAlign: 'center', marginBottom: '15px'}}>
                             <h2 style={{margin: 0, fontSize: '16px', fontWeight: 'bold'}}>REQUISITION AND ISSUE SLIP</h2>
-                            {pageIndex > 0 && <div style={{fontSize: '11px', color: colors.darkGray}}>(Continuation - Page {pageIndex + 1})</div>}
+                            {pageIndex === 0 && (
+                              <div style={{fontSize: '13px', fontWeight: 'bold', color: colors.navy, marginTop: '8px'}}>
+                                Control No.: {String(selectedRequest.controlNumber).padStart(3, '0')} | RIS No.: RIS-{String(selectedRequest.risNumber).padStart(3, '0')}
+                              </div>
+                            )}
+                            {pageIndex > 0 && (
+                              <div style={{fontSize: '11px', color: colors.darkGray, marginTop: '5px'}}>
+                                (Continuation - Page {pageIndex + 1} | Control No.: {String(selectedRequest.controlNumber).padStart(3, '0')})
+                              </div>
+                            )}
                           </div>
 
                           {/* RIS DOCUMENT FORM */}
