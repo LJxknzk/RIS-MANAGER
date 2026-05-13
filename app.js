@@ -2955,17 +2955,23 @@ const RISManagementApp = () => {
 
   const handleSubmitRequest = async (requestData) => {
     try {
+      // Calculate control number (works for both API and local storage modes)
+      const controlNumber = StorageManager.getNextControlNumber(requestData.department, requests);
+      const requestDataWithControl = {
+        ...requestData,
+        controlNumber,
+        requestYear: new Date().getFullYear(),
+      };
+
       if (typeof APIStorageManager !== 'undefined') {
-        await APIStorageManager.createRequest(requestData);
+        await APIStorageManager.createRequest(requestDataWithControl);
         const updated = await APIStorageManager.getRequests();
         setRequests(updated);
       } else {
         const newRequest = {
           id: Math.max(...requests.map(r => r.id), 0) + 1,
-          ...requestData,
+          ...requestDataWithControl,
           risNumber: null,
-          requestYear: new Date().getFullYear(),
-          controlNumber: StorageManager.getNextControlNumber(requestData.department, requests),
           issuedItems: [],
         };
         const updated = [...requests, newRequest];

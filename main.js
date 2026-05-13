@@ -945,9 +945,26 @@ ipcMain.handle('api-request', (event, { method, endpoint, body, token }) => {
       const uid = userIdFromToken(token);
       if (!uid) return { error: 'Unauthorized' };
       const data = body || {};
+      
+      // Calculate control number if not provided or is 0
+      let controlNumber = data.control_number;
+      if (!controlNumber || controlNumber === 0) {
+        const currentYear = new Date().getFullYear();
+        const requestYear = data.request_year || currentYear;
+        const departmentNormalized = (data.department || '').trim().toLowerCase();
+        
+        // Count existing requests for this department in this year
+        const result = execToObjects(
+          'SELECT COUNT(*) as count FROM ris_requests WHERE department = ? AND request_year = ?',
+          [data.department || '', requestYear]
+        );
+        const count = result.length > 0 ? result[0].count : 0;
+        controlNumber = count + 1; // Start from 1
+      }
+      
       db.run(
         'INSERT INTO ris_requests (user_id, control_number, department, request_type, description, request_date, request_year, requester_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [uid, data.control_number || 0, data.department || '', data.request_type || '', data.description || '', data.request_date || new Date().toISOString().slice(0,10), data.request_year || new Date().getFullYear(), data.requester_name || '']
+        [uid, controlNumber, data.department || '', data.request_type || '', data.description || '', data.request_date || new Date().toISOString().slice(0,10), data.request_year || new Date().getFullYear(), data.requester_name || '']
       );
       saveDatabase();
       const created = execToObjects('SELECT * FROM ris_requests WHERE user_id = ? ORDER BY id DESC LIMIT 1', [uid]);
