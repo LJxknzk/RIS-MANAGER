@@ -301,26 +301,18 @@ const StorageManager = {
   },
 
   getNextControlNumber: (department, requests = []) => {
-    const key = StorageManager.getControlNumberKey(department);
-    const storedNumber = parseInt(localStorage.getItem(key)) || 0;
     const currentYear = StorageManager.getCurrentYear();
     const normalizedDepartment = String(department || 'general').trim().toLowerCase();
 
-    const highestExistingNumber = requests.reduce((highest, request) => {
+    // Count all requests for this department in the current year
+    const departmentRequestCount = requests.filter(request => {
       const requestDepartment = String(request.department || '').trim().toLowerCase();
       const requestYear = request.requestYear || (request.requestDate ? new Date(request.requestDate).getFullYear() : null);
-      const controlNumber = parseInt(request.controlNumber) || 0;
+      return requestDepartment === normalizedDepartment && requestYear === currentYear;
+    }).length;
 
-      if (requestDepartment === normalizedDepartment && requestYear === currentYear) {
-        return Math.max(highest, controlNumber);
-      }
-
-      return highest;
-    }, 0);
-
-    const nextNumber = Math.max(storedNumber, highestExistingNumber) + 1;
-    localStorage.setItem(key, String(nextNumber));
-    return nextNumber;
+    // Control number is the count + 1
+    return departmentRequestCount + 1;
   },
 
   initializeDefaults: async (force = false) => {
@@ -562,7 +554,7 @@ const LoginPage = ({ onLogin }) => {
             overflow: 'hidden'
           }}>
             <img 
-              src="assets/logo/logo.png" 
+              src="assets/logo/General_Trias_Logo.jpg" 
               alt="City of General Trias Official Seal"
               style={{
                 width: '100%',
@@ -631,22 +623,6 @@ const LoginPage = ({ onLogin }) => {
           <button onClick={handleSubmit} style={styles.loginButton} disabled={isLoading}>
             {isLoading ? 'Signing in...' : 'Sign In'}
           </button>
-          
-          {/* Example Credentials */}
-          <div style={{backgroundColor: colors.lightGray, padding: '12px', borderRadius: '4px', marginTop: '15px', fontSize: '12px', color: colors.darkGray}}>
-            <p style={{margin: '0 0 8px 0', fontWeight: 'bold'}}>📝 Example Credentials:</p>
-            <div style={{marginBottom: '8px'}}>
-              <strong>Admin:</strong><br/>
-              Email: <code style={{fontFamily: 'monospace', backgroundColor: colors.white, padding: '2px 4px'}}>bryanfortuno@bac.gov</code><br/>
-              Password: <code style={{fontFamily: 'monospace', backgroundColor: colors.white, padding: '2px 4px'}}>BAC2026</code>
-            </div>
-            <div>
-              <strong>Department Users:</strong><br/>
-              Email: <code style={{fontFamily: 'monospace', backgroundColor: colors.white, padding: '2px 4px'}}>{'{acronym}@local.gov'}</code><br/>
-              Password: <code style={{fontFamily: 'monospace', backgroundColor: colors.white, padding: '2px 4px'}}>{'{ACRONYM}2026'}</code><br/>
-              <span style={{fontSize: '11px'}}>Example: aco@local.gov / ACO2026 (Accounting Office)</span>
-            </div>
-          </div>
           
           <div style={styles.signUpLink}>
             Pre-seeded department and admin accounts only. Check Admin panel for complete user list.
