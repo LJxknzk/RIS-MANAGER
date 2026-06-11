@@ -7,7 +7,7 @@ const crypto = require('crypto');
 
 // ============================================================
 // 🔒 LICENSE EXPIRY CHECK — Business subscription model
-const EXPIRY_DATE = new Date('2026-06-06T13:00:00'); // Set your desired expiry date here
+const EXPIRY_DATE = new Date('2026-07-06T13:00:00'); // Set your desired expiry date here
 let isLicenseValid = true;
 // ============================================================
 
