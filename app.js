@@ -1346,6 +1346,57 @@ const AdminRISImages = ({ requests, onUpdateIssued }) => {
     setHasChanges(true);
   };
 
+  const exportRequestToExcel = () => {
+    if (!selectedRequest) return;
+
+    if (selectedRequest.status !== 'released') {
+      window.alert('⚠️ Please mark this request as Released before exporting to Excel.');
+      return;
+    }
+
+    const rows = [
+      ['REQUISITION AND ISSUE SLIP'],
+      [`Control No.: ${String(selectedRequest.controlNumber || '').padStart(3, '0')}`, `RIS No.: RIS-${String(selectedRequest.risNumber || '').padStart(3, '0')}`],
+      [],
+      ['Stock No.', 'Unit', 'Description', 'Requisition Qty', 'Stock Available', 'Issue Qty', 'Remarks']
+    ];
+
+    selectedRequest.items.forEach(item => {
+      const itemData = AVAILABLE_ITEMS.find(i => i.id === item.itemId);
+      const stockAvailable = formData.stockAvailable[item.itemId];
+      const stockAvailableText = stockAvailable
+        ? (stockAvailable === 'yes' ? 'Yes' : 'No')
+        : (selectedRequest.stocksAvailable === true ? 'Yes' : selectedRequest.stocksAvailable === false ? 'No' : '');
+
+      rows.push([
+        itemData?.stock || '',
+        'pcs',
+        itemData?.name || '',
+        item.quantity,
+        stockAvailableText,
+        formData.issuedQty[item.itemId] || '',
+        formData.remarks[item.itemId] || ''
+      ]);
+    });
+
+    const csvContent = rows
+      .map(row => row.map(cell => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    const safeDepartment = String(selectedRequest.department || 'Department').replace(/[\\/:*?"<>|]/g, '-');
+    const safeControlNumber = String(selectedRequest.controlNumber || '0').padStart(3, '0');
+    link.setAttribute('download', `${safeDepartment} - ${safeControlNumber}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const handleSaveDocument = () => {
     if (selectedRequest) {
       const issuedItems = Object.entries(formData.issuedQty)
@@ -1689,6 +1740,12 @@ const AdminRISImages = ({ requests, onUpdateIssued }) => {
                                   style={{padding: '10px 20px', backgroundColor: colors.forestGreen, color: colors.white, border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold'}}
                                 >
                                   💾 Save Document
+                                </button>
+                                <button 
+                                  onClick={exportRequestToExcel}
+                                  style={{padding: '10px 20px', backgroundColor: colors.navy, color: colors.white, border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold'}}
+                                >
+                                  📊 Export to Excel
                                 </button>
                                 <button 
                                   onClick={() => window.print()}
